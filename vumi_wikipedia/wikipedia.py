@@ -12,6 +12,7 @@ from vumi.blinkenlights.metrics import MetricManager, Count
 
 from vumi_wikipedia.wikipedia_api import WikipediaAPI, ArticleExtract
 from vumi_wikipedia.text_manglers import normalize_whitespace, ContentFormatter
+from vumi_wikipedia.rankSentences import SentenceRanker
 
 
 def mkmenu(options, prefix, start=1):
@@ -161,9 +162,12 @@ class WikipediaWorker(ApplicationWorker):
         self.sms_formatter = ContentFormatter(
             self.max_sms_content_length, self.max_sms_unicode_length,
             sentence_break_threshold=self.sentence_break_threshold)
+		
+        self.senc_ranker = SentenceRanker()
 
         if self.incoming_sms_transport:
             yield self._setup_sms_transport_consumer()
+
 
     @inlineCallbacks
     def _setup_metrics(self):
@@ -249,6 +253,7 @@ class WikipediaWorker(ApplicationWorker):
         if self.content_cache_time > 0:
             return self._get_cached_extract(title)
         return self.wikipedia.get_extract(title)
+        
 
     def _message_session_event(self, msg):
         # First, check for session parameters on the message.
@@ -343,6 +348,7 @@ class WikipediaWorker(ApplicationWorker):
             session['results'] = json.dumps(results[:count])
             self.reply_to(msg, msgcontent, True)
             session['state'] = 'sections'
+            session['query'] = query
         else:
             self.fire_metric('ussd_session_search.no_results')
             self.reply_to(
@@ -355,7 +361,11 @@ class WikipediaWorker(ApplicationWorker):
 
         if response.isdigit():
             try:
-                result = options[int(response) - 1]
+                if int(response) < 10:
+	                result = options[int(response) - 1]
+                else:
+    	            result = options[int(response)/10 - 1]
+                
                 self.fire_metric(metric_prefix, int(response))
                 return result
             except (KeyError, IndexError):
@@ -395,9 +405,20 @@ class WikipediaWorker(ApplicationWorker):
             returnValue(session)
         page = json.loads(session['page'])
         extract = yield self.get_extract(page)
-        content = extract.sections[int(msg['content'].strip()) - 1].full_text()
+        option = int(msg['content'].strip());
+        relevant = option < 10
+        print relevant
+        if relevant:
+	        content = extract.sections[int(msg['content'].strip()) - 1].full_text()
+        else :
+    	    content = extract.sections[int(msg['content'].strip())/10 - 1].full_text()
+		
         session['sms_content'] = normalize_whitespace(content)
         session['sms_offset'] = 0
+        rel = int(msg['content'].strip()) > 10 
+        if rel :
+            content =	self.senc_ranker.rankWikiArticleSentences(session['query'],content)
+
         ussd_cont = self.ussd_formatter.format(
             content, '\n(Full content sent by SMS.)')
         self.fire_metric('ussd_session_content')
