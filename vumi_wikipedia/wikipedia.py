@@ -357,15 +357,11 @@ class WikipediaWorker(ApplicationWorker):
         returnValue(session)
 
     def select_option(self, options, msg, metric_prefix=None):
-        response = msg['content'].strip()
+        response = msg['content'][0]
 
         if response.isdigit():
             try:
-                if int(response) < 10:
-	                result = options[int(response) - 1]
-                else:
-    	            result = options[int(response)/10 - 1]
-                
+                result = options[int(response) - 1]               
                 self.fire_metric(metric_prefix, int(response))
                 return result
             except (KeyError, IndexError):
@@ -405,17 +401,17 @@ class WikipediaWorker(ApplicationWorker):
             returnValue(session)
         page = json.loads(session['page'])
         extract = yield self.get_extract(page)
-        option = int(msg['content'].strip());
-        relevant = option < 10
+        option = msg['content'][1:]
+        relevant = (option == '*')
         print relevant
         if relevant:
-	        content = extract.sections[int(msg['content'].strip()) - 1].full_text()
+	        content = extract.sections[int(msg['content'][0].strip()) - 1].full_text()
         else :
-    	    content = extract.sections[int(msg['content'].strip())/10 - 1].full_text()
+    	    content = extract.sections[int(msg['content'][0].strip()) - 1].full_text()
 		
         session['sms_content'] = normalize_whitespace(content)
         session['sms_offset'] = 0
-        rel = int(msg['content'].strip()) > 10 
+        rel = ((msg['content'][1:]) == '*')
         if rel :
             content =	self.senc_ranker.rankWikiArticleSentences(session['query'],content)
 
